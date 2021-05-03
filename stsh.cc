@@ -11,6 +11,7 @@
 #include "stsh-job-list.h"
 #include "stsh-job.h"
 #include "stsh-process.h"
+#include <array>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -42,6 +43,11 @@ static bool handleBuiltin(const pipeline& pipeline) {
   switch (index) {
   case 0:
   case 1: exit(0);
+  case 2: cout << "Called fg command\n"; break;
+  case 3: cout << "Called bg command\n"; break;
+  case 4: cout << "Called slay command\n"; break;
+  case 5: cout << "Called halt command\n"; break;
+  case 6: cout << "Called cont command\n"; break;
   case 7: cout << joblist; break;
   default: throw STSHException("Internal Error: Builtin command not supported."); // or not implemented yet
   }
@@ -73,13 +79,30 @@ static void installSignalHandlers() {
  * Creates a new job on behalf of the provided pipeline.
  */
 static void createJob(const pipeline& p) {
+  pid_t child = fork();
+  
+  if(child == 0){
+    //cout << "CHILD:\n";
+    cout << p.commands[0].command << endl;
+    cout << p.commands[0].tokens[0] << endl;
+    int n = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
+    char *combined[n + 1];
+    combined[0] = (char *)p.commands[0].command;
+    for (int i=1; i < (n + 1); i++) {
+        combined[i] = (char *)p.commands[0].tokens[i-1];
+    }
+    execvp(combined[0], combined);
+  }
+  int status;
+  waitpid(child, &status, 0); 
+ 
   cout << p; // remove this line once you get started
   /* STSHJob& job = */ joblist.addJob(kForeground);
 }
 
 /**
  * Function: main
- * --------------
+  --------------
  * Defines the entry point for a process running stsh.
  * The main function is little more than a read-eval-print
  * loop (i.e. a repl).  
@@ -87,7 +110,7 @@ static void createJob(const pipeline& p) {
 int main(int argc, char *argv[]) {
   pid_t stshpid = getpid();
   installSignalHandlers();
-  rlinit(argc, argv);
+  rlinit(argc, argv); // configures stsh-readline library so readline works properly
   while (true) {
     string line;
     if (!readline(line)) break;
