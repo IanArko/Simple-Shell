@@ -16,6 +16,7 @@
 #include <iostream>
 #include <string>
 #include <algorithm>
+#include <assert.h>
 #include <fcntl.h>
 #include <unistd.h>  // for fork
 #include <signal.h>  // for kill
@@ -55,6 +56,42 @@ static bool handleBuiltin(const pipeline& pipeline) {
   return true;
 }
 
+static void updateJobList(STSHJobList& jobList, pid_t pid, STSHProcessState state) {
+     if (!jobList.containsProcess(pid)) return;
+     STSHJob& job = jobList.getJobWithProcess(pid);
+     assert(job.containsProcess(pid));
+     STSHProcess& process = job.getProcess(pid);
+     process.setState(state);
+     jobList.synchronize(job);
+}
+
+/* Our Signal Hanler Definitions
+ * -------------------------------
+ */
+
+/* Function: sigChild
+ * -------------------------------
+ * sigChildReaps our child process and removes jobs from the job list
+ */
+static void sigChild(int sig){
+  int status;
+  pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
+  if (WIFEXITED(status) || WIFSIGNALED(status)) updateJobList(joblist, pid, kTerminated);
+  if (WIFSTOPPED(status)) updateJobList(joblist, pid, kStopped);
+  if (WIFCONTINUED(status)) updateJobList(joblist, pid, kRunning);
+}
+
+/* Function: sigForward
+ * -------------------------------
+ * Pass a signal to the foreground process
+ */
+static void sigForward(int sig){
+  if(joblist.hasForegroundJob()){
+    kill(joblist.getForegroundJob().getGroupID(), sig);
+  }
+}
+
+
 /**
  * Function: installSignalHandlers
  * -------------------------------
@@ -68,6 +105,13 @@ static bool handleBuiltin(const pipeline& pipeline) {
  * to see how it works.
  */
 static void installSignalHandlers() {
+  // Our signal handlers
+  installSignalHandler(SIGCHLD, sigChild);
+  installSignalHandler(SIGINT, sigForward);
+  installSignalHandler(SIGTSTP, sigForward);
+
+
+  // Default signal handlers
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
   installSignalHandler(SIGTTIN, SIG_IGN);
   installSignalHandler(SIGTTOU, SIG_IGN);
@@ -79,25 +123,34 @@ static void installSignalHandlers() {
  * Creates a new job on behalf of the provided pipeline.
  */
 static void createJob(const pipeline& p) {
-  pid_t child = fork();
+  STSHJob& job = joblist.addJob(kForeground);
   
-  if(child == 0){
-    //cout << "CHILD:\n";
-    cout << p.commands[0].command << endl;
-    cout << p.commands[0].tokens[0] << endl;
+  pid_t child = fork();
+   
+  if (child != 0){
+    job.addProcess(STSHProcess(child, p.commands[0]));
+  } else {
     int n = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
     char *combined[n + 1];
     combined[0] = (char *)p.commands[0].command;
+    
     for (int i=1; i < (n + 1); i++) {
         combined[i] = (char *)p.commands[0].tokens[i-1];
     }
+
     execvp(combined[0], combined);
+    exit(0);
   }
-  int status;
-  waitpid(child, &status, 0); 
- 
-  cout << p; // remove this line once you get started
-  /* STSHJob& job = */ joblist.addJob(kForeground);
+  
+
+  // stop the program to run what is in the foreground
+  // Block all signals except for sigchild
+  sigset_t mask;
+  sigemptyset(&mask);
+  // sigprocmask ????
+  while(joblist.hasForegroundJob()) {
+    sigsuspend(&mask);
+  }
 }
 
 /**
