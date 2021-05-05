@@ -27,6 +27,24 @@ using namespace std;
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 
 /**
+ * Builtin Handlers
+ * -----------------------
+ */
+
+static void fgHandler(const pipeline& p){
+  char* token0 = p.commands[0].tokens[0];
+  char* token1 = p.commands[0].tokens[1];
+  
+  int t0 = atoi(token0);
+  
+  if(t0 < 1 || token1 != NULL){
+    throw STSHException("Usage: fg <jobid>.");
+  } else {
+    cout << "valid input" << endl;
+  }
+}
+
+/**
  * Function: handleBuiltin
  * -----------------------
  * Examines the leading command of the provided pipeline to see if
@@ -44,7 +62,14 @@ static bool handleBuiltin(const pipeline& pipeline) {
   switch (index) {
   case 0:
   case 1: exit(0);
-  case 2: cout << "Called fg command\n"; break;
+  case 2: // fg
+    try {
+      fgHandler(pipeline);
+      break;
+    } catch (const STSHException& e) {
+      cerr << e.what() << endl;
+    }
+    break;
   case 3: cout << "Called bg command\n"; break;
   case 4: cout << "Called slay command\n"; break;
   case 5: cout << "Called halt command\n"; break;
