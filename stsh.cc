@@ -35,12 +35,18 @@ static void fgHandler(const pipeline& p){
   char* token0 = p.commands[0].tokens[0];
   char* token1 = p.commands[0].tokens[1];
   
-  int t0 = atoi(token0);
-  
+  int t0 = 0;
+  if (token0 != NULL) {  
+    t0 = atoi(token0);
+  }
   if(t0 < 1 || token1 != NULL){
     throw STSHException("Usage: fg <jobid>.");
   } else {
-    cout << "valid input" << endl;
+    if(!joblist.containsJob(t0)){
+      throw STSHException("fg " + to_string(t0) + ": No such job.");
+    } else {
+
+    }
   }
 }
 
