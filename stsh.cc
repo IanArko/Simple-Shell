@@ -321,10 +321,13 @@ static void createJob(const pipeline& p) {
     }
 
     execvp(combined[0], combined);
-    throw(STSHException(string(p.commands[0].command) + ": Command not found."));
+    
     if (n > 1){
       close(fds[1]);
     }
+
+    throw(STSHException(string(p.commands[0].command) + ": Command not found."));
+    
     exit(0);
   }
   
@@ -353,7 +356,7 @@ static void createJob(const pipeline& p) {
           }
 
           execvp(combined[0], combined);
-          throw(STSHException(string(p.commands[i].command) + ": Command not found."));
+	  throw(STSHException(string(p.commands[i].command) + ": Command not found."));
           exit(0);
       }
   }
@@ -396,9 +399,8 @@ static void createJob(const pipeline& p) {
 
     close(fds[(n-2)*2+1]);
     execvp(combined[0], combined);
-    throw(STSHException(string(p.commands[n-1].command) + ": Command not found.")); 
-    // if we get past execvp, close descriptors we read from
     close(fds[(n-2)*2]);
+    throw(STSHException(string(p.commands[n-1].command) + ": Command not found.")); 
     exit(0);
   }
   }
