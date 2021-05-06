@@ -26,6 +26,8 @@ using namespace std;
 
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 
+pid_t pid0;
+
 static void waitForFg(){
   // stop the program to run what is in the foreground
   // Block all signals except for sigchild
@@ -65,7 +67,7 @@ static void fgHandler(const pipeline& p){
       // IF there were no errors, get the job with #t0 from the job list
       STSHJob& job = joblist.getJob(t0);
       pid_t groupID = job.getGroupID();
-      kill(groupID, SIGCONT);      
+      kill(-groupID, SIGCONT);      
       job.setState(kForeground);
       /*
       if (tcsetpgrp(STDIN_FILENO, groupID) < 0) {
@@ -95,7 +97,7 @@ static void bgHandler(const pipeline& p){
       // IF there were no errors, get the job with #t0 from the job list
       STSHJob& job = joblist.getJob(t0);
       pid_t groupID = job.getGroupID();
-      kill(groupID, SIGCONT);
+      kill(-groupID, SIGCONT);
       job.setState(kBackground);
     }
   }
@@ -161,21 +163,26 @@ static void updateJobList(STSHJobList& jobList, pid_t pid, STSHProcessState stat
  * sigChildReaps our child process and removes jobs from the job list
  */
 static void sigChild(int sig){
-  // cout << "SIG CHILD HANDLER" << endl;
-  // cout << joblist;
-  int status;
-  pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
-  if (WIFEXITED(status) || WIFSIGNALED(status)) {
-     updateJobList(joblist, pid, kTerminated);
-  } else if(WIFSTOPPED(status)) {
-     updateJobList(joblist, pid, kStopped);
-  } else { // WIFCONTINUED(status)
-    updateJobList(joblist, pid, kRunning);
-  }
-  if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
+  while (true) {
+    cout << "WHILE" << endl;
+	  
+    int status;
+    
+    pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
+    
+    if (pid == -1) { assert(errno == ECHILD); break; }
+
+    if (WIFEXITED(status) || WIFSIGNALED(status)) {
+       updateJobList(joblist, pid, kTerminated);
+    } else if(WIFSTOPPED(status)) {
+       updateJobList(joblist, pid, kStopped);
+    } else { // WIFCONTINUED(status)
+      updateJobList(joblist, pid, kRunning);
+    }
+    if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
       throw STSHException("Failed to transfer STDIN control back to terminal.");
+    }
   }
-  // cout << joblist;
 }
 
 /* Function: sigForward
@@ -184,8 +191,13 @@ static void sigChild(int sig){
  */
 static void sigForward(int sig){
   if(joblist.hasForegroundJob()){
-    kill(joblist.getForegroundJob().getGroupID(), sig);
+      // cout << "group pid (SF): " <<  to_string(getpgid(pid0)) << endl;
+      // cout << "pid 0 (SF): " << pid0 << endl;
+    pid_t groupID = joblist.getForegroundJob().getGroupID();
+    // cout << "group id (SF): " <<  to_string(groupID) << endl;
+    kill(-groupID, sig);
   }
+  cout << joblist;
 }
 
 
@@ -231,16 +243,18 @@ static void createJob(const pipeline& p) {
   }
 
   // First Process  
-  pid_t pid0 = fork();
+  pid0 = fork();
+  //cout << "pid 0 : " << pid0 << endl;
   if (pid0 != 0){
-      setpgid(pid0, 0);
+    setpgid(pid0, pid0);
+    //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
     job.addProcess(STSHProcess(pid0, p.commands[0]));    
     // Print each of the group ids
     if(p.background) {
       cout << job.getGroupID();
     }
   } else {
-    setpgid(getpid(), 0);
+    setpgid(getpid(), getpid());
     dup2(fds[1],STDOUT_FILENO);
 
     int n = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
@@ -252,13 +266,15 @@ static void createJob(const pipeline& p) {
     }
 
     execvp(combined[0], combined);
+    throw(STSHException("Command not found."));
     close(fds[0]);
     close(fds[1]);
     exit(0);
   }
   
   // Middle proccesses  
-
+  //cout << "pid 0 : " << pid0 << endl;
+  //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
 
   // Last Process
   if (n > 1){ 
@@ -267,7 +283,12 @@ static void createJob(const pipeline& p) {
   if (pidl != 0){
     setpgid(pidl, pid0);
     job.addProcess(STSHProcess(pidl, p.commands[1]));
+    
 
+    // cout << "pid 0 : " << pid0 << endl;
+    // cout << "pid l : " << pidl << endl;
+    // cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
+    // cout << "group pid : " <<  to_string(getpgid(pidl)) << endl;
     // Print each of the group ids
     if(p.background) {
       cout << " " << pidl << endl;
@@ -284,6 +305,7 @@ static void createJob(const pipeline& p) {
     }
 
     execvp(combined[0], combined);
+    throw(STSHException("Command not found."));
     close(fds[0]);
     close(fds[1]);
     exit(0);
