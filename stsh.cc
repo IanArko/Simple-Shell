@@ -178,7 +178,7 @@ static bool handleBuiltin(const pipeline& pipeline) {
     break;
   case 3: // bg
     try {
-      slayHandler(pipeline);
+      bgHandler(pipeline);
     } catch (const STSHException& e) {
       cerr << e.what() << endl;
     }
