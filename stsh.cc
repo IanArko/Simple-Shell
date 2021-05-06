@@ -163,8 +163,8 @@ static void updateJobList(STSHJobList& jobList, pid_t pid, STSHProcessState stat
  * sigChildReaps our child process and removes jobs from the job list
  */
 static void sigChild(int sig){
-  while (true) {
-    cout << "WHILE" << endl;
+  while (joblist.hasForegroundJob()) {
+    //cout << "WHILE" << endl;
 	  
     int status;
     
@@ -255,7 +255,18 @@ static void createJob(const pipeline& p) {
     }
   } else {
     setpgid(getpid(), getpid());
-    dup2(fds[1],STDOUT_FILENO);
+    if (!p.input.empty()) {
+        int fdin = open(p.input.c_str(), O_RDONLY);
+        dup2(fdin, STDIN_FILENO);
+    }
+    if (n==1) {
+        if (!p.output.empty()) {
+            int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+            dup2(fdout, STDOUT_FILENO);
+        } 
+    } else {
+        dup2(fds[1],STDOUT_FILENO);
+    }
 
     int n = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
     char *combined[n + 1];
