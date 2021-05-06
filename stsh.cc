@@ -237,9 +237,7 @@ static void installSignalHandlers() {
 static void createJob(const pipeline& p) {
   int n = p.commands.size();
   int fds[(n-1)*2];
-  if (n > 1) {
-      pipe2(fds, O_CLOEXEC);
-  }
+  pipe2(fds, O_CLOEXEC);
   STSHJob& job = joblist.addJob(kForeground);
   
   if(p.background) {
@@ -288,11 +286,11 @@ static void createJob(const pipeline& p) {
         dup2(fds[1],STDOUT_FILENO);
     }
 
-    int n = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
-    char *combined[n + 1];
+    // int num_tok = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
+    char *combined[kMaxArguments + 1];
     combined[0] = (char *)p.commands[0].command;
     
-    for (int i=1; i < (n + 1); i++) {
+    for (int i=1; i < (kMaxArguments + 1); i++) {
         combined[i] = (char *)p.commands[0].tokens[i-1];
     }
 
@@ -306,8 +304,35 @@ static void createJob(const pipeline& p) {
   }
   
   // Middle proccesses  
-  //cout << "pid 0 : " << pid0 << endl;
-  //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
+  for (int i=1; i < (n-1); i++) {
+      pipe2(fds + (i*2), O_CLOEXEC);
+      pid_t pid_i = fork();
+      if (pid_i != 0){
+          setpgid(pid_i, pid0);
+          job.addProcess(STSHProcess(pid_i, p.commands[i]));    
+          // Print each of the group ids
+          if(p.background) {
+              cout << " " << to_string(pid_i);
+          }
+      } else {
+          setpgid(getpid(), pid0);
+          dup2(fds[(2*i) + 1], STDOUT_FILENO);
+          dup2(fds[2*(i-1)], STDIN_FILENO);
+
+          char *combined[kMaxArguments + 1];
+          combined[0] = (char *)p.commands[i].command;
+    
+          for (int j=1; j < (kMaxArguments + 1); j++) {
+              combined[j] = (char *)p.commands[i].tokens[j-1];
+          }
+
+          execvp(combined[0], combined);
+          throw(STSHException("Command not found."));
+          close(fds[0]);
+          close(fds[1]);
+          exit(0);
+      }
+  }
 
   // Last Process
   if (n > 1){ 
@@ -324,7 +349,7 @@ static void createJob(const pipeline& p) {
     // cout << "group pid : " <<  to_string(getpgid(pidl)) << endl;
     // Print each of the group ids
     if(p.background) {
-      cout << " " << pidl << endl;
+        cout << " " << to_string(pidl) << endl;
     }
   } else {
     setpgid(getpid(), pid0);
