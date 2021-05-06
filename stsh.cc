@@ -69,11 +69,11 @@ static void fgHandler(const pipeline& p){
       pid_t groupID = job.getGroupID();
       kill(-groupID, SIGCONT);      
       job.setState(kForeground);
-      /*
+    
       if (tcsetpgrp(STDIN_FILENO, groupID) < 0) {
           throw STSHException("Failed to transfer STDIN control to foreground process.");
       }
-      */
+   
       waitForFg();
     }    
   }
@@ -174,13 +174,16 @@ static void sigChild(int sig){
 
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
        updateJobList(joblist, pid, kTerminated);
+       if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
+         throw STSHException("Failed to transfer STDIN control back to terminal.");
+       }
     } else if(WIFSTOPPED(status)) {
        updateJobList(joblist, pid, kStopped);
+       if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
+         throw STSHException("Failed to transfer STDIN control back to terminal.");
+       } 
     } else { // WIFCONTINUED(status)
       updateJobList(joblist, pid, kRunning);
-    }
-    if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
-      throw STSHException("Failed to transfer STDIN control back to terminal.");
     }
   }
 }
@@ -234,7 +237,9 @@ static void installSignalHandlers() {
 static void createJob(const pipeline& p) {
   int n = p.commands.size();
   int fds[(n-1)*2];
-  pipe2(fds, O_CLOEXEC);
+  if (n > 1) {
+      pipe2(fds, O_CLOEXEC);
+  }
   STSHJob& job = joblist.addJob(kForeground);
   
   if(p.background) {
@@ -244,9 +249,23 @@ static void createJob(const pipeline& p) {
 
   // First Process  
   pid0 = fork();
+  
+  /* 
+  int error = tcsetpgrp(STDIN_FILENO, pid0);
+  if (error < 0) {
+    throw STSHException("Failed to transfer STDIN control to foreground process.");
+  }
+ */ 
+
   //cout << "pid 0 : " << pid0 << endl;
   if (pid0 != 0){
     setpgid(pid0, pid0);
+    
+    int error = tcsetpgrp(STDIN_FILENO, pid0);
+    if (error < 0) {
+      throw STSHException("Failed to transfer STDIN control to foreground process.");
+    }
+    
     //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
     job.addProcess(STSHProcess(pid0, p.commands[0]));    
     // Print each of the group ids
@@ -256,6 +275,7 @@ static void createJob(const pipeline& p) {
   } else {
     setpgid(getpid(), getpid());
     if (!p.input.empty()) {
+        cout << "redirecting input" << endl;
         int fdin = open(p.input.c_str(), O_RDONLY);
         dup2(fdin, STDIN_FILENO);
     }
@@ -278,8 +298,10 @@ static void createJob(const pipeline& p) {
 
     execvp(combined[0], combined);
     throw(STSHException("Command not found."));
-    close(fds[0]);
-    close(fds[1]);
+    if (n > 1){
+        close(fds[0]);
+        close(fds[1]);
+    }
     exit(0);
   }
   
@@ -306,13 +328,20 @@ static void createJob(const pipeline& p) {
     }
   } else {
     setpgid(getpid(), pid0);
+
+    // Read from the output of the previous child/children
     dup2(fds[0],STDIN_FILENO);
+    // Write to a file if a path is specified
+    if (!p.output.empty()) {
+      int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+      dup2(fdout, STDOUT_FILENO);
+    }
 
     char *combined[kMaxArguments + 1];
-    combined[0] = (char *)p.commands[1].command;
+    combined[0] = (char *)p.commands[n-1].command;
 
     for (int i=1; i < (kMaxArguments + 1); i++) {
-        combined[i] = (char *)p.commands[1].tokens[i-1];
+        combined[i] = (char *)p.commands[n-1].tokens[i-1];
     }
 
     execvp(combined[0], combined);
@@ -327,11 +356,6 @@ static void createJob(const pipeline& p) {
 
   // Run fg proccess in fg
   if(!p.background) {
-    /*
-    if (tcsetpgrp(STDIN_FILENO, child) < 0) {
-      throw STSHException("Failed to transfer STDIN control to foreground process.");
-    }
-    */
     waitForFg();
   }
 }
