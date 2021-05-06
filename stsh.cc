@@ -26,19 +26,11 @@ using namespace std;
 
 static STSHJobList joblist; // the one piece of global data we need so signal handlers can access it
 
-pid_t pid0;
-
 static void waitForFg(){
   // stop the program to run what is in the foreground
   // Block all signals except for sigchild
   sigset_t mask;
   sigemptyset(&mask);
-  // sigaddset(&mask, SIGCHLD);
-  // Link below contains a sample run that may or may not be an issue. If it isn't delete these lines.
-  // https://www.notion.so/Maybe-Timing-Error-e5f15d7fb6c74829baba2c76113e3dec
-  // sigprocmask ????
-  // cout << "WAIT FOR FG" << endl;
-  // cout << joblist;
   while(joblist.hasForegroundJob()) {
     sigsuspend(&mask);
   }
@@ -48,7 +40,6 @@ static void waitForFg(){
  * Builtin Handlers
  * -----------------------
  */
-
 static void fgbgHandler(const pipeline& p, string builtin, int sig){
   // Get the inputs and do error checking
   char* token0 = p.commands[0].tokens[0];
@@ -70,12 +61,13 @@ static void fgbgHandler(const pipeline& p, string builtin, int sig){
       kill(-groupID, sig);      
       job.setState(kForeground);
     
-      if (tcsetpgrp(STDIN_FILENO, groupID) < 0) {
+      if (builtin == "fg") {
+        if (tcsetpgrp(STDIN_FILENO, groupID) < 0) {
           throw STSHException("Failed to transfer STDIN control to foreground process.");
-      }
-
-      if(builtin == "fg") waitForFg();
-    }    
+        } 
+        waitForFg();
+      }    
+    }
   }
 }
 
@@ -231,13 +223,9 @@ static void sigChild(int sig){
  */
 static void sigForward(int sig){
   if(joblist.hasForegroundJob()){
-      // cout << "group pid (SF): " <<  to_string(getpgid(pid0)) << endl;
-      // cout << "pid 0 (SF): " << pid0 << endl;
     pid_t groupID = joblist.getForegroundJob().getGroupID();
-    // cout << "group id (SF): " <<  to_string(groupID) << endl;
     kill(-groupID, sig);
   }
-  cout << joblist;
 }
 
 
@@ -258,7 +246,6 @@ static void installSignalHandlers() {
   installSignalHandler(SIGCHLD, sigChild);
   installSignalHandler(SIGINT, sigForward);
   installSignalHandler(SIGTSTP, sigForward);
-
 
   // Default signal handlers
   installSignalHandler(SIGQUIT, [](int sig) { exit(0); });
@@ -283,7 +270,7 @@ static void createJob(const pipeline& p) {
   }
 
   // First Process  
-  pid0 = fork();
+  pid_t pid0 = fork();
   
   if (pid0 != 0){
     setpgid(pid0, pid0);
@@ -348,7 +335,8 @@ static void createJob(const pipeline& p) {
       if (pid_i != 0){
           setpgid(pid_i, pid0);
           job.addProcess(STSHProcess(pid_i, p.commands[i]));    
-          // Print each of the group ids
+          
+	  // Print each of the group ids
           if(p.background) {
               cout << " " << to_string(pid_i);
           }
@@ -366,9 +354,6 @@ static void createJob(const pipeline& p) {
 
           execvp(combined[0], combined);
           throw(STSHException(string(p.commands[i].command) + ": Command not found."));
-          // fix these
-	  //close(fds[i+1]);
-          //close(fds[i+2]);
           exit(0);
       }
   }
