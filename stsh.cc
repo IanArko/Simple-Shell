@@ -103,7 +103,7 @@ static void bgHandler(const pipeline& p){
   }
 }
 
-static void slayHandler(const pipeline& p){
+static void singleProcessHandler(const pipeline& p, string builtin, int sig){
   // Get the inputs and do error checking
   char* token0 = p.commands[0].tokens[0];
   char* token1 = p.commands[0].tokens[1];
@@ -123,14 +123,14 @@ static void slayHandler(const pipeline& p){
 
   // Incorrect arguement count
   if(t0 < 1 || token2 != NULL){
-    throw STSHException("Usage: slay <jobid> <index> | <pid>.");
+    throw STSHException("Usage: " + builtin + " <jobid> <index> | <pid>.");
   } else {
     // If all of our inputs are correct
     if (token1 == NULL) { // IF there is just one arguement
       if(joblist.containsProcess(t0)){
-        kill(t0, SIGKILL);
+        kill(t0, sig);
       } else {
-          throw STSHException( "No process with pid " + to_string(t0) + ".");
+        throw STSHException( "No process with pid " + to_string(t0) + ".");
       }
     } else { // IF there ar 2 arguements
       if(!joblist.containsJob(t0)){
@@ -143,13 +143,12 @@ static void slayHandler(const pipeline& p){
           throw STSHException("Job " + to_string(t0) + " doesn't have a process at index " + to_string(t1) + ".");
         } else {
 	  pid = processes[t1].getID();
-          kill(pid, SIGKILL);
+          kill(pid, sig);
 	}
       }
     }
   }
 }
-
 
 /**
  * Function: handleBuiltin
@@ -185,13 +184,25 @@ static bool handleBuiltin(const pipeline& pipeline) {
     break;
   case 4: // slay 
     try {
-      slayHandler(pipeline);
+      singleProcessHandler(pipeline, "slay", SIGKILL);
     } catch (const STSHException& e) {
       cerr << e.what() << endl;
     }
     break;
-  case 5: cout << "Called halt command\n"; break;
-  case 6: cout << "Called cont command\n"; break;
+  case 5: // halt
+    try {
+      singleProcessHandler(pipeline, "halt", SIGSTOP);
+    } catch (const STSHException& e) {
+      cerr << e.what() << endl;
+    }
+    break; 
+  case 6: // cont
+    try {
+      singleProcessHandler(pipeline, "cont", SIGCONT);
+    } catch (const STSHException& e) {
+      cerr << e.what() << endl;
+    }
+    break;
   case 7: cout << joblist; break;
   default: throw STSHException("Internal Error: Builtin command not supported."); // or not implemented yet
   }
