@@ -49,7 +49,7 @@ static void waitForFg(){
  * -----------------------
  */
 
-static void fgHandler(const pipeline& p){
+static void fgbgHandler(const pipeline& p, string builtin, int sig){
   // Get the inputs and do error checking
   char* token0 = p.commands[0].tokens[0];
   char* token1 = p.commands[0].tokens[1];
@@ -59,47 +59,23 @@ static void fgHandler(const pipeline& p){
     t0 = atoi(token0);
   }
   if(t0 < 1 || token1 != NULL){
-    throw STSHException("Usage: fg <jobid>.");
+    throw STSHException("Usage: " + builtin + " <jobid>.");
   } else {
     if(!joblist.containsJob(t0)){
-      throw STSHException("fg " + to_string(t0) + ": No such job.");
+      throw STSHException(builtin + " " + to_string(t0) + ": No such job.");
     } else {
       // IF there were no errors, get the job with #t0 from the job list
       STSHJob& job = joblist.getJob(t0);
       pid_t groupID = job.getGroupID();
-      kill(-groupID, SIGCONT);      
+      kill(-groupID, sig);      
       job.setState(kForeground);
     
       if (tcsetpgrp(STDIN_FILENO, groupID) < 0) {
           throw STSHException("Failed to transfer STDIN control to foreground process.");
       }
-   
-      waitForFg();
+
+      if(builtin == "fg") waitForFg();
     }    
-  }
-}
-
-static void bgHandler(const pipeline& p){
-  // Get the inputs and do error checking
-  char* token0 = p.commands[0].tokens[0];
-  char* token1 = p.commands[0].tokens[1];
-
-  int t0 = 0;
-  if (token0 != NULL) {
-    t0 = atoi(token0);
-  }
-  if(t0 < 1 || token1 != NULL){
-    throw STSHException("Usage: bg <jobid>.");
-  } else {
-    if(!joblist.containsJob(t0)){
-      throw STSHException("bg " + to_string(t0) + ": No such job.");
-    } else {
-      // IF there were no errors, get the job with #t0 from the job list
-      STSHJob& job = joblist.getJob(t0);
-      pid_t groupID = job.getGroupID();
-      kill(-groupID, SIGCONT);
-      job.setState(kBackground);
-    }
   }
 }
 
@@ -170,14 +146,14 @@ static bool handleBuiltin(const pipeline& pipeline) {
   case 1: exit(0);
   case 2: // fg
     try {
-      fgHandler(pipeline);
+      fgbgHandler(pipeline, "fg", SIGCONT);
     } catch (const STSHException& e) {
       cerr << e.what() << endl;
     }
     break;
   case 3: // bg
     try {
-      bgHandler(pipeline);
+      fgbgHandler(pipeline, "bg", SIGCONT);
     } catch (const STSHException& e) {
       cerr << e.what() << endl;
     }
