@@ -164,7 +164,7 @@ static void updateJobList(STSHJobList& jobList, pid_t pid, STSHProcessState stat
  */
 static void sigChild(int sig){
   while (joblist.hasForegroundJob()) {
-    //cout << "WHILE" << endl;
+    cout << "WHILE" << endl;
 	  
     int status;
     
@@ -273,7 +273,6 @@ static void createJob(const pipeline& p) {
   } else {
     setpgid(getpid(), getpid());
     if (!p.input.empty()) {
-        cout << "redirecting input" << endl;
         int fdin = open(p.input.c_str(), O_RDONLY);
         dup2(fdin, STDIN_FILENO);
     }
@@ -355,7 +354,7 @@ static void createJob(const pipeline& p) {
     setpgid(getpid(), pid0);
 
     // Read from the output of the previous child/children
-    dup2(fds[0],STDIN_FILENO);
+    dup2(fds[(2*n)-4],STDIN_FILENO);
     // Write to a file if a path is specified
     if (!p.output.empty()) {
       int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
