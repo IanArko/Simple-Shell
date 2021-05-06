@@ -163,15 +163,11 @@ static void updateJobList(STSHJobList& jobList, pid_t pid, STSHProcessState stat
  * sigChildReaps our child process and removes jobs from the job list
  */
 static void sigChild(int sig){
-  while (joblist.hasForegroundJob()) {
-    cout << "WHILE" << endl;
-	  
+  while (true) {
     int status;
-    
-    pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
-    
-    if (pid == -1) { assert(errno == ECHILD); break; }
-
+    pid_t pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED); 
+    if (pid <= 0) break;
+     
     if (WIFEXITED(status) || WIFSIGNALED(status)) {
        updateJobList(joblist, pid, kTerminated);
        if (tcsetpgrp(STDIN_FILENO, getpid()) < 0) {
@@ -248,44 +244,41 @@ static void createJob(const pipeline& p) {
   // First Process  
   pid0 = fork();
   
-  /* 
-  int error = tcsetpgrp(STDIN_FILENO, pid0);
-  if (error < 0) {
-    throw STSHException("Failed to transfer STDIN control to foreground process.");
-  }
- */ 
-
-  //cout << "pid 0 : " << pid0 << endl;
   if (pid0 != 0){
     setpgid(pid0, pid0);
     
     int error = tcsetpgrp(STDIN_FILENO, pid0);
     if (error < 0) {
-      throw STSHException("Failed to transfer STDIN control to foreground process.");
+      //throw STSHException("Failed to transfer STDIN control to foreground process.");
     }
     
     //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
     job.addProcess(STSHProcess(pid0, p.commands[0]));    
     // Print each of the group ids
+    
     if(p.background) {
       cout << job.getGroupID();
     }
   } else {
     setpgid(getpid(), getpid());
+    
     if (!p.input.empty()) {
         int fdin = open(p.input.c_str(), O_RDONLY);
         dup2(fdin, STDIN_FILENO);
+        close(fdin); // ??
     }
+
     if (n==1) {
         if (!p.output.empty()) {
             int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
             dup2(fdout, STDOUT_FILENO);
-        } 
+            close(fdout);
+	} 
     } else {
         dup2(fds[1],STDOUT_FILENO);
+        close(fds[0]);
     }
-
-    // int num_tok = sizeof(p.commands[0].tokens) / sizeof(p.commands[0].tokens[0]);
+    
     char *combined[kMaxArguments + 1];
     combined[0] = (char *)p.commands[0].command;
     
@@ -296,9 +289,9 @@ static void createJob(const pipeline& p) {
     execvp(combined[0], combined);
     throw(STSHException("Command not found."));
     if (n > 1){
-        close(fds[0]);
-        close(fds[1]);
+      close(fds[1]);
     }
+    
     exit(0);
   }
   
@@ -327,8 +320,9 @@ static void createJob(const pipeline& p) {
 
           execvp(combined[0], combined);
           throw(STSHException("Command not found."));
-          close(fds[0]);
-          close(fds[1]);
+          // fix these
+	  //close(fds[i+1]);
+          //close(fds[i+2]);
           exit(0);
       }
   }
@@ -341,11 +335,6 @@ static void createJob(const pipeline& p) {
     setpgid(pidl, pid0);
     job.addProcess(STSHProcess(pidl, p.commands[1]));
     
-
-    // cout << "pid 0 : " << pid0 << endl;
-    // cout << "pid l : " << pidl << endl;
-    // cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
-    // cout << "group pid : " <<  to_string(getpgid(pidl)) << endl;
     // Print each of the group ids
     if(p.background) {
         cout << " " << to_string(pidl) << endl;
@@ -359,6 +348,7 @@ static void createJob(const pipeline& p) {
     if (!p.output.empty()) {
       int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
       dup2(fdout, STDOUT_FILENO);
+      close(fdout);
     }
 
     char *combined[kMaxArguments + 1];
@@ -368,15 +358,19 @@ static void createJob(const pipeline& p) {
         combined[i] = (char *)p.commands[n-1].tokens[i-1];
     }
 
+    close(fds[(n-2)*2+1]);
     execvp(combined[0], combined);
-    throw(STSHException("Command not found."));
-    close(fds[0]);
-    close(fds[1]);
+    throw(STSHException("Command not found.")); 
+    // if we get past execvp, close descriptors we read from
+    close(fds[(n-2)*2]);
     exit(0);
   }
   }
-  close(fds[0]);
-  close(fds[1]);
+  
+  // Close all fds in the parent
+  for (int i = 0; i < (n-1)*2 ; i++){
+    close(fds[i]);
+  } 
 
   // Run fg proccess in fg
   if(!p.background) {
