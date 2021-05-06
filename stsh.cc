@@ -130,7 +130,7 @@ static void slayHandler(const pipeline& p){
       if(joblist.containsProcess(t0)){
         kill(t0, SIGKILL);
       } else {
-        cout << "NO PROCESS" << endl;
+          throw STSHException( "No process with pid " + to_string(t0) + ".");
       }
     } else { // IF there ar 2 arguements
       if(!joblist.containsJob(t0)){
@@ -347,11 +347,10 @@ static void createJob(const pipeline& p) {
     }
 
     execvp(combined[0], combined);
-    throw(STSHException("Command not found."));
+    throw(STSHException(string(p.commands[0].command) + ": Command not found."));
     if (n > 1){
       close(fds[1]);
     }
-    
     exit(0);
   }
   
@@ -379,7 +378,7 @@ static void createJob(const pipeline& p) {
           }
 
           execvp(combined[0], combined);
-          throw(STSHException("Command not found."));
+          throw(STSHException(string(p.commands[i].command) + ": Command not found."));
           // fix these
 	  //close(fds[i+1]);
           //close(fds[i+2]);
@@ -425,7 +424,7 @@ static void createJob(const pipeline& p) {
 
     close(fds[(n-2)*2+1]);
     execvp(combined[0], combined);
-    throw(STSHException("Command not found.")); 
+    throw(STSHException(string(p.commands[n-1].command) + ": Command not found.")); 
     // if we get past execvp, close descriptors we read from
     close(fds[(n-2)*2]);
     exit(0);
