@@ -132,7 +132,7 @@ static void singleProcessHandler(const pipeline& p, string builtin, int sig){
       } else {
         throw STSHException( "No process with pid " + to_string(t0) + ".");
       }
-    } else { // IF there ar 2 arguements
+    } else { // IF there are two arguements
       if(!joblist.containsJob(t0)){
         throw STSHException("No job with id of " + to_string(t0) + ".");
       } else {
