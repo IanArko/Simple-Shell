@@ -103,6 +103,54 @@ static void bgHandler(const pipeline& p){
   }
 }
 
+static void slayHandler(const pipeline& p){
+  // Get the inputs and do error checking
+  char* token0 = p.commands[0].tokens[0];
+  char* token1 = p.commands[0].tokens[1];
+  char* token2 = p.commands[0].tokens[2];
+
+  int t0 = 0;
+  if (token0 != NULL) {
+    t0 = atoi(token0);
+  }
+
+  int t1 = 0;
+  if (token1 != NULL) {
+    t1 = atoi(token1);
+  }
+
+  // TODO: ENSURE THAT TOKEN0 AND TOKEN 1 ARE ONLY NUMERIC
+
+  // Incorrect arguement count
+  if(t0 < 1 || token2 != NULL){
+    throw STSHException("Usage: slay <jobid> <index> | <pid>.");
+  } else {
+    // If all of our inputs are correct
+    if (token1 == NULL) { // IF there is just one arguement
+      if(joblist.containsProcess(t0)){
+        kill(t0, SIGKILL);
+      } else {
+        cout << "NO PROCESS" << endl;
+      }
+    } else { // IF there ar 2 arguements
+      if(!joblist.containsJob(t0)){
+        throw STSHException("No job with id of " + to_string(t0) + ".");
+      } else {
+        STSHJob& job = joblist.getJob(t0);
+        vector<STSHProcess>& processes = job.getProcesses();
+	pid_t pid;
+	if(t1 < 0 || t1 >= processes.size()){
+          throw STSHException("Job " + to_string(t0) + " doesn't have a process at index " + to_string(t1) + ".");
+        } else {
+	  pid = processes[t1].getID();
+          kill(pid, SIGKILL);
+	}
+      }
+    }
+  }
+}
+
+
 /**
  * Function: handleBuiltin
  * -----------------------
@@ -130,12 +178,18 @@ static bool handleBuiltin(const pipeline& pipeline) {
     break;
   case 3: // bg
     try {
-      bgHandler(pipeline);
+      slayHandler(pipeline);
     } catch (const STSHException& e) {
       cerr << e.what() << endl;
     }
     break;
-  case 4: cout << "Called slay command\n"; break;
+  case 4: // slay 
+    try {
+      slayHandler(pipeline);
+    } catch (const STSHException& e) {
+      cerr << e.what() << endl;
+    }
+    break;
   case 5: cout << "Called halt command\n"; break;
   case 6: cout << "Called cont command\n"; break;
   case 7: cout << joblist; break;
@@ -247,17 +301,18 @@ static void createJob(const pipeline& p) {
   if (pid0 != 0){
     setpgid(pid0, pid0);
     
-    int error = tcsetpgrp(STDIN_FILENO, pid0);
-    if (error < 0) {
-      //throw STSHException("Failed to transfer STDIN control to foreground process.");
-    }
-    
-    //cout << "group pid : " <<  to_string(getpgid(pid0)) << endl;
     job.addProcess(STSHProcess(pid0, p.commands[0]));    
-    // Print each of the group ids
     
+    // Print each of the group ids
     if(p.background) {
       cout << job.getGroupID();
+      if( n == 1) cout << endl;
+    } else {
+    // If a process is running in the fg make sure it has keyboard control
+      int error = tcsetpgrp(STDIN_FILENO, pid0);
+      if (error < 0) {
+        throw STSHException("Failed to transfer STDIN control to foreground process.");
+      }
     }
   } else {
     setpgid(getpid(), getpid());
@@ -265,12 +320,17 @@ static void createJob(const pipeline& p) {
     if (!p.input.empty()) {
         int fdin = open(p.input.c_str(), O_RDONLY);
         dup2(fdin, STDIN_FILENO);
-        close(fdin); // ??
+        close(fdin);
     }
 
     if (n==1) {
         if (!p.output.empty()) {
-            int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+            int fdout;
+            if (access(p.output.c_str(), F_OK) != -1 ) {
+                fdout = open(p.output.c_str(), O_TRUNC | O_RDWR);
+            } else {
+                fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+            }
             dup2(fdout, STDOUT_FILENO);
             close(fdout);
 	} 
@@ -333,7 +393,7 @@ static void createJob(const pipeline& p) {
 
   if (pidl != 0){
     setpgid(pidl, pid0);
-    job.addProcess(STSHProcess(pidl, p.commands[1]));
+    job.addProcess(STSHProcess(pidl, p.commands[n-1]));
     
     // Print each of the group ids
     if(p.background) {
@@ -346,7 +406,12 @@ static void createJob(const pipeline& p) {
     dup2(fds[(2*n)-4],STDIN_FILENO);
     // Write to a file if a path is specified
     if (!p.output.empty()) {
-      int fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+      int fdout;
+      if (access(p.output.c_str(), F_OK) != -1 ) {
+          fdout = open(p.output.c_str(), O_TRUNC | O_RDWR);
+      } else {
+          fdout = open(p.output.c_str(), O_CREAT | O_RDWR, 0644);
+      }
       dup2(fdout, STDOUT_FILENO);
       close(fdout);
     }
